@@ -120,7 +120,6 @@ Foram 7 pacotes e cerca de **382 MB** adicionais em disco.
 docker --version
 ```
 
-![Versao do Docker](imagens/docker-version.png)
 
 Isso confirma só o cliente. Para verificar que o daemon também está de pé e consegue criar containers:
 
