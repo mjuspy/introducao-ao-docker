@@ -4,7 +4,6 @@ Primeira etapa do trabalho da disciplina de **Redes e Administração de Sistema
 
 O objetivo foi instalar o Docker em uma máquina virtual com Ubuntu Server, escrever uma aplicação web em **Python** com o framework **Flask** e executá-la dentro de um **container**, acessando a página pelo navegador.
 
-- **Professor:** Cesar Augusto de Moraes Costa
 - **Ambiente:** Ubuntu Server sobre Oracle VirtualBox
 - **Imagem base:** `python:3.14-slim`
 
@@ -450,7 +449,7 @@ Usar `sudo` ou adicionar o usuário ao grupo `docker` e reiniciar a sessão.
 ## Como reproduzir
 
 ```bash
-git clone https://github.com/SEU-USUARIO/introducao-ao-docker.git
+git clone https://github.com/mjuspy/introducao-ao-docker.git
 cd introducao-ao-docker
 docker build -t minha-flask .
 docker run -d -p 5000:5000 --name meu-flask minha-flask
