@@ -4,6 +4,7 @@ Primeira etapa do trabalho da disciplina de **Redes e Administração de Sistema
 
 O objetivo foi instalar o Docker em uma máquina virtual com Ubuntu Server, escrever uma aplicação web em **Python** com o framework **Flask** e executá-la dentro de um **container**, acessando a página pelo navegador.
 
+
 - **Ambiente:** Ubuntu Server sobre Oracle VirtualBox
 - **Imagem base:** `python:3.14-slim`
 
@@ -71,6 +72,7 @@ ssh aluno@localhost -p 2222
 
 O destino é `localhost`, o próprio Windows, e não o IP da VM, porque quem atende a porta 2222 é o VirtualBox, que repassa a conexão. Isso resolve o problema de não conseguir colar código dentro da janela do VirtualBox.
 
+![Conexao SSH a partir do Windows](imagens/ssh-conexao.png)
 
 **Repositórios antigos.** A imagem da VM disponibilizada no laboratório já trazia arquivos de repositório desatualizados, que precisam ser removidos antes de instalar pela fonte oficial:
 
@@ -120,6 +122,7 @@ Foram 7 pacotes e cerca de **382 MB** adicionais em disco.
 docker --version
 ```
 
+![Versao do Docker](imagens/docker-version.png)
 
 Isso confirma só o cliente. Para verificar que o daemon também está de pé e consegue criar containers:
 
