@@ -54,7 +54,24 @@ A arquitetura tem três peças: o **cliente** (o comando `docker` que você digi
 
 A máquina virtual roda **Ubuntu Server** no VirtualBox. Dois ajustes foram necessários.
 
-**Rede.** Durante a instalação dos pacotes o adaptador ficou em **NAT**, que basta para a VM alcançar a internet. Depois, para acessar a aplicação pelo navegador do computador hospedeiro, o adaptador foi trocado para **Bridge**.
+**Rede.** O adaptador ficou em **NAT** o tempo todo, que basta para a VM alcançar a internet. Em NAT a VM fica numa rede privada do VirtualBox (o `ip a` mostra `10.0.2.15` na interface `enp0s3`) e o Windows não alcança esse endereço. Para resolver, foram criadas duas regras de **redirecionamento de portas** em Configurações → Rede → Avançado → Redirecionamento de Portas:
+
+| Regra | Porta do host | Porta da VM | Para quê |
+|---|---|---|---|
+| SSH | 2222 | 22 | acesso remoto ao terminal |
+| Flask | 5000 | 5000 | acesso à aplicação web |
+
+Com isso, `localhost:2222` no Windows chega na porta 22 da VM, e `localhost:5000` chega na 5000.
+
+**Acesso remoto por SSH.** Com a regra acima, a conexão a partir do terminal do Windows fica:
+
+```bash
+ssh aluno@localhost -p 2222
+```
+
+O destino é `localhost`, o próprio Windows, e não o IP da VM, porque quem atende a porta 2222 é o VirtualBox, que repassa a conexão. Isso resolve o problema de não conseguir colar código dentro da janela do VirtualBox.
+
+![Conexao SSH a partir do Windows](imagens/ssh-conexao.png)
 
 **Repositórios antigos.** A imagem da VM disponibilizada no laboratório já trazia arquivos de repositório desatualizados, que precisam ser removidos antes de instalar pela fonte oficial:
 
@@ -99,6 +116,14 @@ Foram 7 pacotes e cerca de **382 MB** adicionais em disco.
 ---
 
 ## 4. Validação com hello-world
+
+```bash
+docker --version
+```
+
+![Versao do Docker](imagens/docker-version.png)
+
+Isso confirma só o cliente. Para verificar que o daemon também está de pé e consegue criar containers:
 
 ```bash
 sudo docker run hello-world
@@ -333,6 +358,16 @@ python:3.14-slim     cad9a2c87176        191MB         48.6MB
 
 ![Imagens locais apos a construcao](imagens/imagens-final.png)
 
+Como o container roda em segundo plano, a saída dele não aparece no terminal. Para ver o que a aplicação registrou:
+
+```bash
+docker logs meu-flask
+```
+
+![Logs do container](imagens/docker-logs.png)
+
+A saída mostra o Flask escutando em `0.0.0.0` e registra a origem de cada requisição, o que deixa as duas camadas de rede visíveis: `172.17.0.1` é o `curl` de dentro da VM, `10.0.2.2` é o navegador do Windows chegando pela NAT do VirtualBox.
+
 A `minha-flask` aparece com 211 MB contra 191 MB da imagem base, mas o espaço realmente ocupado a mais é de apenas **20 MB**. Todas as camadas herdadas do Python são compartilhadas fisicamente entre as duas imagens. Esse é o efeito do sistema de camadas.
 
 ---
@@ -352,7 +387,7 @@ curl http://localhost:5000
 
 ![Teste da aplicacao com curl](imagens/teste-curl.png)
 
-**No navegador do computador hospedeiro,** com o adaptador de rede já em modo Bridge, acessando `http://localhost:5000`:
+**No navegador do Windows,** em `http://localhost:5000`, graças à regra de redirecionamento:
 
 ![Aplicacao no navegador](imagens/navegador-inicial.png)
 
@@ -433,7 +468,15 @@ docker exec -it meu-flask bash    # abre um shell dentro do container
 ## 13. Problemas encontrados
 
 **A página não abre no navegador do hospedeiro.**
-O adaptador da VM estava em NAT. Em NAT a VM alcança a internet, mas o hospedeiro não alcança a VM. A solução foi trocar para **Bridge** nas configurações de rede do VirtualBox.
+Em NAT a VM alcança a internet, mas o Windows não alcança a VM. O container subia normal, o `docker ps` mostrava `Up` e o `curl` interno respondia, mas o navegador não abria nada. O engano foi procurar o problema no Docker: o `-p 5000:5000` funcionava, o que faltava era a camada de fora, entre Windows e VM. A solução foi o **redirecionamento de portas** no VirtualBox. Trocar para Bridge também resolveria, mas depende da rede do laboratório e o IP muda a cada sessão.
+
+O `docker logs meu-flask` deixa as duas camadas visíveis: requisições de `172.17.0.1` são o `curl` de dentro da VM, vindas do gateway da `docker0`; requisições de `10.0.2.2` são o navegador do Windows, vindas do gateway da NAT do VirtualBox.
+
+**Não dá para colar código dentro da VM.**
+O Ubuntu Server não tem interface gráfica e a janela do VirtualBox não compartilha a área de transferência com o Windows. Digitar o `app.py` inteiro no `nano`, com CSS e três rotas, é lento e cheio de erro de digitação. Acessar a VM por um terminal no próprio Windows resolve, porque aí o copiar e colar funciona.
+
+**Editei o app.py mas a página não mudou.**
+O código foi copiado para dentro da imagem no `docker build`. O container em execução continua servindo a versão antiga. É preciso parar, remover, reconstruir e executar de novo.
 
 **O `apt-get update` acusa conflito de repositórios.**
 Sobraram arquivos antigos em `/etc/apt/sources.list.d`. Remover `docker.list` e `docker.sources` resolve.
