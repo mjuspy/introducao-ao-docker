@@ -71,7 +71,6 @@ ssh aluno@localhost -p 2222
 
 O destino é `localhost`, o próprio Windows, e não o IP da VM, porque quem atende a porta 2222 é o VirtualBox, que repassa a conexão. Isso resolve o problema de não conseguir colar código dentro da janela do VirtualBox.
 
-![Conexao SSH a partir do Windows](imagens/ssh-conexao.png)
 
 **Repositórios antigos.** A imagem da VM disponibilizada no laboratório já trazia arquivos de repositório desatualizados, que precisam ser removidos antes de instalar pela fonte oficial:
 
