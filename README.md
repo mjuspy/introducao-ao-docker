@@ -1,12 +1,15 @@
-# Introdução ao Docker
+# Introdução ao Docker e Docker Compose
 
-Primeira etapa do trabalho da disciplina de **Redes e Administração de Sistemas** do Curso Técnico em Informática Integrado ao Ensino Médio do IFSP, campus Campos do Jordão.
+Trabalho da disciplina de **Redes e Administração de Sistemas** do Curso Técnico em Informática Integrado ao Ensino Médio do IFSP, campus Campos do Jordão, seguindo o material de apoio do professor: [RAS-Docker](https://github.com/CesarAugusto88/RAS-Docker).
 
-O objetivo foi instalar o Docker em uma máquina virtual com Ubuntu Server, escrever uma aplicação web em **Python** com o framework **Flask** e executá-la dentro de um **container**, acessando a página pelo navegador.
+O trabalho tem duas etapas:
 
+1. **Docker:** instalar o Docker em uma máquina virtual com Ubuntu Server, escrever uma aplicação web em **Python** com o framework **Flask** e executá-la dentro de um **container**, acessando a página pelo navegador (seções 1 a 11).
+2. **Docker Compose:** evoluir a aplicação para três containers, integrando o Flask a um banco de dados **MySQL** e a um servidor web **Apache** que funciona como proxy reverso (seções 12 a 18).
 
 - **Ambiente:** Ubuntu Server sobre Oracle VirtualBox
 - **Imagem base:** `python:3.14-slim`
+- **Serviços do Compose:** `mysql:8.0`, aplicação Flask e `httpd:2.4`
 
 ---
 
@@ -23,8 +26,15 @@ O objetivo foi instalar o Docker em uma máquina virtual com Ubuntu Server, escr
 9. [Execução do container](#9-execução-do-container)
 10. [Testes de acesso](#10-testes-de-acesso)
 11. [Evolução da aplicação](#11-evolução-da-aplicação)
-12. [Comandos úteis](#12-comandos-úteis)
-13. [Problemas encontrados](#13-problemas-encontrados)
+12. [Orquestração com Docker Compose](#12-orquestração-com-docker-compose)
+13. [Estrutura e variáveis de ambiente](#13-estrutura-e-variáveis-de-ambiente)
+14. [Serviços do Compose](#14-serviços-do-compose)
+15. [Apache como proxy reverso](#15-apache-como-proxy-reverso)
+16. [Integração com o banco de dados](#16-integração-com-o-banco-de-dados)
+17. [Execução e tabela de alunos](#17-execução-e-tabela-de-alunos)
+18. [Testes de acesso com o Compose](#18-testes-de-acesso-com-o-compose)
+19. [Comandos úteis](#19-comandos-úteis)
+20. [Problemas encontrados](#20-problemas-encontrados)
 
 ---
 
@@ -396,7 +406,7 @@ curl http://localhost:5000
 
 ## 11. Evolução da aplicação
 
-Com o fluxo funcionando, a aplicação ganhou as rotas `/sobre` e `/contato`, um menu de navegação compartilhado entre as páginas e uma folha de estilos CSS com tema escuro. O código completo está em [`app/app.py`](app/app.py).
+Com o fluxo funcionando, a aplicação ganhou as rotas `/sobre` e `/contato`, um menu de navegação compartilhado entre as páginas e uma folha de estilos CSS com tema escuro. O arquivo [`app/app.py`](app/app.py) do repositório já é a versão final da segunda etapa, que acrescenta a rota `/alunos` (seção 16).
 
 ![Codigo com as novas rotas](imagens/codigo-app-rotas.png)
 
@@ -450,7 +460,392 @@ As três páginas ficaram acessíveis pelo menu, o que mostra que o roteamento d
 
 ---
 
-## 12. Comandos úteis
+## 12. Orquestração com Docker Compose
+
+Na primeira etapa a aplicação rodava em um único container, criado à mão com `docker build` e `docker run`. Na segunda, o ambiente passa a ter três containers e o **Docker Compose** descreve todos eles em um único arquivo YAML, de onde são construídos, iniciados e encerrados em conjunto.
+
+| Serviço | Imagem | Porta | Função |
+|---|---|---|---|
+| `server` | `httpd:2.4` | 80 | proxy reverso, ponto de entrada |
+| `flask` | construída pelo Dockerfile | 5000 | aplicação web em Python |
+| `db` | `mysql:8.0` | 3306 | armazenamento dos dados |
+
+O fluxo de uma requisição é: **navegador → Apache → Flask → MySQL**, e a resposta faz o caminho de volta.
+
+Três recursos do Compose são centrais:
+
+- **Rede interna:** o Compose cria uma rede compartilhada pelos três containers, onde cada um é encontrado pelo **nome do serviço**. O Flask fala com o banco em `db` e o Apache fala com o Flask em `flask`, sem precisar saber IP nenhum.
+- **Volume:** área de armazenamento gerenciada pelo Docker, independente do container. Os dados do MySQL ficam nele e sobrevivem à remoção e recriação do container.
+- **Variáveis de ambiente:** valores entregues ao container na execução, o que mantém senhas fora do código e da imagem.
+
+O Compose já estava instalado desde a seção 3, porque o pacote `docker-compose-plugin` fazia parte do comando de instalação:
+
+```bash
+docker compose version
+```
+
+> Use sempre `docker compose`, com espaço. O `docker-compose`, com hífen, é a versão antiga, distribuída como programa separado.
+
+---
+
+## 13. Estrutura e variáveis de ambiente
+
+O container da primeira etapa foi removido para liberar a porta 5000, e os arquivos novos foram criados na raiz do projeto:
+
+```bash
+docker stop meu-flask
+docker rm meu-flask
+cd ~/projeto-flask
+touch compose.yaml .env .gitignore httpd.conf
+tree -a
+```
+
+```
+.
+├── app
+│   ├── app.py
+│   └── requirements.txt
+├── compose.yaml
+├── Dockerfile
+├── .env
+├── .gitignore
+└── httpd.conf
+
+2 directories, 7 files
+```
+
+![Estrutura do projeto com os arquivos do Compose](imagens/compose-estrutura.png)
+
+O `-a` do `tree` mostra também os arquivos ocultos, como `.env` e `.gitignore`. O Dockerfile continua o mesmo da seção 7.
+
+**Dependências.** O `app/requirements.txt` ganhou o conector do MySQL, e a versão do Flask foi fixada para que todo build instale exatamente a mesma:
+
+```
+Flask==3.1.2
+mysql-connector-python
+```
+
+**Variáveis de ambiente.** As senhas não ficam no `compose.yaml`. Ficam no arquivo `.env`, que o Compose lê sozinho:
+
+```
+MYSQL_ROOT_PASSWORD=sua_senha_root
+MYSQL_PASSWORD=sua_senha_flask
+```
+
+`MYSQL_ROOT_PASSWORD` é a senha do administrador do MySQL e `MYSQL_PASSWORD` é a do usuário `flaskuser`, usado pela aplicação. O arquivo `.env` **não vai para o repositório**. O `.gitignore` impede isso:
+
+```
+.env
+__pycache__/
+*.pyc
+*.swp
+```
+
+Na máquina virtual, o acesso ao arquivo também foi restringido ao próprio usuário:
+
+```bash
+chmod 600 .env
+```
+
+O `.env` não é criptografado. Ele só separa as credenciais da configuração versionada.
+
+---
+
+## 14. Serviços do Compose
+
+O `compose.yaml` define os três serviços, as dependências entre eles e o volume:
+
+```yaml
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Defina no .env}
+      MYSQL_DATABASE: meu_banco
+      MYSQL_USER: flaskuser
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Defina no .env}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  flask:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: meu_banco
+      DB_USER: flaskuser
+      DB_PASSWORD: ${MYSQL_PASSWORD:?Defina no .env}
+    volumes:
+      - ./app:/app
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  server:
+    image: httpd:2.4
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
+    depends_on:
+      - flask
+
+volumes:
+  mysql_data:
+```
+
+![Arquivo compose.yaml na máquina virtual](imagens/compose-yaml.png)
+
+### Serviço `db`
+
+- **Imagem oficial do MySQL.** As variáveis `MYSQL_DATABASE`, `MYSQL_USER` e `MYSQL_PASSWORD` fazem o próprio container criar o banco `meu_banco` e o usuário `flaskuser` na primeira inicialização.
+- **`${MYSQL_PASSWORD:?Defina no .env}`** significa: pegue o valor no `.env` e, se ele não existir, interrompa e mostre a mensagem depois do `?`. O texto `Defina no .env` é uma **mensagem de erro**, não a senha.
+- **Volume `mysql_data`**, montado em `/var/lib/mysql`. Os registros permanecem mesmo que o container seja removido e recriado.
+- **`healthcheck`** executa `mysqladmin ping` de tempos em tempos. Enquanto o MySQL não responde, o serviço é considerado não saudável. O `$$` impede que o Compose substitua a variável ao ler o arquivo, deixando isso para o shell dentro do container.
+
+### Serviço `flask`
+
+- **`build`** com `context: .` constrói a imagem a partir do Dockerfile da raiz, em vez de baixar uma imagem pronta.
+- **`DB_HOST: db`** é o nome do serviço do banco na rede interna.
+- **`depends_on` com `service_healthy`** faz o Flask esperar o banco passar no `healthcheck` antes de iniciar. Sem isso, o Flask subiria assim que o container do MySQL fosse criado, com o banco ainda não pronto para conexões.
+- **`./app:/app`** monta o código local dentro do container. Junto com o `debug=True` do Flask, alterar o `app.py` atualiza a página sem reconstruir a imagem, o contrário do ciclo da seção 11.
+- **`ports`** no lugar de `expose`: o material de referência usa `expose`, que só documenta a porta 5000 na rede interna. Como o trabalho também pede o acesso direto ao Flask, a porta é publicada com `"5000:5000"`.
+
+### Serviço `server`
+
+Imagem oficial do Apache, publicando a porta 80. O `httpd.conf` é montado no container em modo somente leitura, indicado pelo `:ro`.
+
+---
+
+## 15. Apache como proxy reverso
+
+O Apache recebe as requisições na porta 80 e as repassa ao Flask. Esse papel se chama **proxy reverso**.
+
+```apache
+ServerRoot "/usr/local/apache2"
+Listen 80
+ServerName localhost
+
+LoadModule mpm_event_module modules/mod_mpm_event.so
+LoadModule authz_core_module modules/mod_authz_core.so
+LoadModule unixd_module modules/mod_unixd.so
+LoadModule log_config_module modules/mod_log_config.so
+LoadModule mime_module modules/mod_mime.so
+LoadModule proxy_module modules/mod_proxy.so
+LoadModule proxy_http_module modules/mod_proxy_http.so
+
+User daemon
+Group daemon
+
+TypesConfig conf/mime.types
+
+ErrorLog /proc/self/fd/2
+LogLevel warn
+CustomLog /proc/self/fd/1 common
+
+<VirtualHost *:80>
+    ProxyRequests Off
+    ProxyPreserveHost On
+    ProxyPass / http://flask:5000/
+    ProxyPassReverse / http://flask:5000/
+</VirtualHost>
+```
+
+![Configuração do Apache como proxy reverso](imagens/compose-httpd.png)
+
+- **Módulos:** só os indispensáveis são carregados, entre eles `mod_proxy` e `mod_proxy_http`, que fazem o encaminhamento.
+- **`ProxyPass`** envia toda requisição recebida em `/` para `http://flask:5000/`, usando o nome do serviço na rede interna.
+- **`ProxyPassReverse`** ajusta os cabeçalhos das respostas, para que redirecionamentos apontem para o Apache e não para o endereço interno do Flask.
+- **`ProxyRequests Off`** desativa o modo de proxy aberto, que permitiria usar o servidor para acessar sites externos.
+- **Logs** vão para a saída padrão, e por isso aparecem em `docker compose logs server`.
+
+---
+
+## 16. Integração com o banco de dados
+
+O `app/app.py` manteve o visual e as rotas da primeira etapa e ganhou a rota `/alunos`, com o link correspondente no menu. A conexão lê as credenciais de variáveis de ambiente:
+
+```python
+import os
+import mysql.connector
+
+def conectar_banco():
+    return mysql.connector.connect(
+        host=os.environ["DB_HOST"],
+        port=int(os.environ.get("DB_PORT", "3306")),
+        database=os.environ["DB_NAME"],
+        user=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"]
+    )
+```
+
+Nenhuma credencial fica escrita no código. A mesma aplicação pode apontar para outro banco só mudando a configuração.
+
+A rota que consulta os alunos:
+
+```python
+@app.route("/alunos")
+def alunos():
+    conexao = conectar_banco()
+    cursor = conexao.cursor(dictionary=True)
+
+    try:
+        cursor.execute("SELECT id, nome FROM alunos ORDER BY id")
+        registros = cursor.fetchall()
+
+        itens = ""
+        for aluno in registros:
+            itens += f"<li>{aluno['id']} - {aluno['nome']}</li>"
+
+        return f"""
+        <html>
+        <head><title>Alunos</title>{style}</head>
+        <body>
+            <h1>Alunos cadastrados no MySQL</h1>
+            <ul>{itens}</ul>
+            {nav}
+        </body>
+        </html>
+        """
+
+    finally:
+        cursor.close()
+        conexao.close()
+```
+
+- **`dictionary=True`** devolve cada registro como dicionário, e as colunas são acessadas pelo nome.
+- **`finally`** garante que o cursor e a conexão sejam fechados mesmo se a consulta falhar.
+- A conexão só é aberta quando a rota é acessada. Por isso o Flask subir sem erro **não prova** que o banco funciona: só o acesso a `/alunos` prova.
+
+As páginas `/sobre` e `/contato` continuam estáticas, e a `/sobre` foi atualizada para descrever a nova arquitetura.
+
+---
+
+## 17. Execução e tabela de alunos
+
+Antes de subir, a configuração foi validada:
+
+```bash
+docker compose config
+```
+
+Esse comando mostra o arquivo final com as variáveis do `.env` já substituídas. Como isso **expõe as senhas**, a saída não deve ser publicada nem entrar em prints.
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+| Opção | Função |
+|---|---|
+| `-d` | executa os containers em segundo plano |
+| `--build` | força a construção da imagem do Flask |
+
+![Serviços subindo com docker compose up](imagens/compose-up.png)
+
+```
+NAME                     IMAGE                 COMMAND                  SERVICE   STATUS                    PORTS
+projeto-flask-db-1       mysql:8.0             "docker-entrypoint.s…"   db        Up 20 minutes (healthy)   3306/tcp, 33060/tcp
+projeto-flask-flask-1    projeto-flask-flask   "python app.py"          flask     Up 20 minutes             0.0.0.0:5000->5000/tcp, [::]:5000->5000/tcp
+projeto-flask-server-1   httpd:2.4             "httpd-foreground"       server    Up 16 minutes             0.0.0.0:80->80/tcp, [::]:80->80/tcp
+```
+
+![Estado dos três serviços](imagens/compose-ps.png)
+
+Os três serviços estão em execução e o banco aparece como `healthy`. Só as portas 80 e 5000 estão publicadas na VM. A 3306 do MySQL fica acessível apenas dentro da rede interna do Compose.
+
+**Criação da tabela.** O banco `meu_banco` é criado sozinho, mas as tabelas não. Ela foi criada pelo cliente do MySQL dentro do container:
+
+```bash
+docker compose exec db mysql -u flaskuser -p meu_banco
+```
+
+```sql
+CREATE TABLE alunos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nome VARCHAR(100) NOT NULL
+);
+
+INSERT INTO alunos (nome)
+VALUES ('Gustavo Alves Maciel'), ('Maria Júllia Mello de Lima');
+
+SELECT * FROM alunos;
+```
+
+```
++----+----------------------------+
+| id | nome                       |
++----+----------------------------+
+|  1 | Gustavo Alves Maciel       |
+|  2 | Maria Júllia Mello de Lima |
++----+----------------------------+
+```
+
+![Registros da tabela alunos](imagens/compose-select.png)
+
+> O `docker compose exec` executa um programa dentro de um container em execução, identificado pelo nome do serviço.
+
+---
+
+## 18. Testes de acesso com o Compose
+
+**Redirecionamento de portas.** A VM continuou em NAT, então foi acrescentada uma terceira regra no VirtualBox, junto com as da seção 2:
+
+| Regra | Porta do host | Porta da VM | Para quê |
+|---|---|---|---|
+| SSH | 2222 | 22 | acesso remoto ao terminal |
+| Flask | 5000 | 5000 | acesso direto à aplicação |
+| Apache | 8080 | 80 | acesso pelo proxy reverso |
+
+A porta 8080 foi usada no Windows porque a 80 pode estar ocupada ou exigir administrador.
+
+![Regras de redirecionamento no VirtualBox](imagens/compose-virtualbox.png)
+
+**Dentro da VM, pelo Apache:**
+
+```bash
+curl -i http://localhost/alunos
+```
+
+```
+HTTP/1.1 200 OK
+Server: Werkzeug/3.1.9 Python/3.14.10
+Content-Type: text/html; charset=utf-8
+```
+
+![Resposta da rota /alunos pelo Apache](imagens/compose-curl.png)
+
+O `200 OK` confirma o caminho completo: o Apache recebeu, repassou ao Flask, o Flask consultou o MySQL e devolveu a página. O cabeçalho `Server` mostra `Werkzeug` porque o proxy repassa a resposta do Flask do jeito que ela chega.
+
+**No navegador do Windows, pelo Apache** (`localhost:8080`):
+
+![Página inicial pelo Apache](imagens/compose-inicio.png)
+
+![Página Sobre pelo Apache](imagens/compose-sobre.png)
+
+![Página Contato pelo Apache](imagens/compose-contato.png)
+
+![Rota /alunos pelo Apache](imagens/compose-alunos-8080.png)
+
+**Direto no Flask, sem passar pelo Apache** (`localhost:5000/alunos`), com os mesmos registros vindos do MySQL:
+
+![Rota /alunos direto no Flask](imagens/compose-alunos-5000.png)
+
+---
+
+## 19. Comandos úteis
 
 ```bash
 docker --version                  # versão instalada
@@ -464,9 +859,21 @@ docker rmi minha-flask            # remove a imagem
 docker exec -it meu-flask bash    # abre um shell dentro do container
 ```
 
+Comandos do Docker Compose, sempre dentro da pasta que contém o `compose.yaml`:
+
+| Comando | Função |
+|---|---|
+| `docker compose up -d --build` | constrói e inicia os serviços |
+| `docker compose ps` | lista os serviços e o estado de cada um |
+| `docker compose logs -f flask` | acompanha os logs de um serviço |
+| `docker compose exec db mysql -u flaskuser -p meu_banco` | abre o MySQL dentro do container |
+| `docker compose config` | valida e mostra a configuração final |
+| `docker compose down` | para e remove os containers |
+| `docker compose down -v` | remove também os volumes, **apagando os dados** |
+
 ---
 
-## 13. Problemas encontrados
+## 20. Problemas encontrados
 
 **A página não abre no navegador do hospedeiro.**
 Em NAT a VM alcança a internet, mas o Windows não alcança a VM. O container subia normal, o `docker ps` mostrava `Up` e o `curl` interno respondia, mas o navegador não abria nada. O engano foi procurar o problema no Docker: o `-p 5000:5000` funcionava, o que faltava era a camada de fora, entre Windows e VM. A solução foi o **redirecionamento de portas** no VirtualBox. Trocar para Bridge também resolveria, mas depende da rede do laboratório e o IP muda a cada sessão.
@@ -488,6 +895,44 @@ O Flask estava escutando só em `127.0.0.1`. É preciso declarar `app.run(host='
 **`permission denied` ao rodar o docker.**
 Usar `sudo` ou adicionar o usuário ao grupo `docker` e reiniciar a sessão.
 
+**O disco da VM enche (`No space left on device`).**
+Ao editar o `requirements.txt`, o `nano` não conseguiu salvar. O `df -h /` mostrava o disco de 8,1 GB com 100% de uso. Mais tarde o próprio MySQL recusou criar a tabela, com o erro `Create table/tablespace 'alunos' failed, as disk is full`. A limpeza com `docker system prune -a`, `apt-get clean` e `journalctl --vacuum-size=50M` ajudou pouco, porque as imagens do MySQL, do Apache e do Python somam mais de 1 GB e o banco ainda precisa gravar dados. O `sudo vgs` mostrou que não havia espaço livre no LVM. A solução foi aumentar o disco virtual para 20 GB no VirtualBox, com a VM desligada, e depois fazer o Ubuntu usar o espaço novo:
+
+```bash
+lsblk
+sudo growpart /dev/sda 3
+sudo pvresize /dev/sda3
+sudo lvextend -r -l +100%FREE /dev/mapper/ubuntu--vg-ubuntu--lv
+df -h /
+```
+
+O `growpart` estende a partição, o `pvresize` avisa o LVM e o `lvextend -r` aumenta o volume lógico e o sistema de arquivos de uma vez, sem reiniciar. A falha de gravação também deixou um arquivo temporário `.requirements.txt.swp`, que foi apagado e entrou no `.gitignore`.
+
+**O container `server` não sobe: `address already in use` na porta 80.**
+O `db` e o `flask` subiram, mas o Apache do container falhou ao publicar a porta 80. O `sudo ss -tlnp | grep ':80 '` mostrou um Apache instalado direto na VM, fora do Docker, já escutando nela. Dois processos não podem usar a mesma porta. A solução foi parar e desabilitar o serviço da VM, para ele não voltar após um reinício:
+
+```bash
+sudo systemctl stop apache2
+sudo systemctl disable apache2
+docker compose up -d
+```
+
+**O acento sumiu no MySQL (`Jllia` no lugar de `Júllia`).**
+O terminal dentro do container não estava em UTF-8 e descartou o caractere ao digitar. O registro foi corrigido com um comando executado a partir da VM, com o conjunto de caracteres definido:
+
+```bash
+docker compose exec db mysql --default-character-set=utf8mb4 -u flaskuser -p meu_banco -e "UPDATE alunos SET nome='Maria Júllia Mello de Lima' WHERE id=2;"
+```
+
+**`no configuration file provided: not found`.**
+Depois de uns dias sem abrir a VM, o SSH entrou na pasta pessoal e o Compose procura o `compose.yaml` no diretório atual. Bastou `cd ~/projeto-flask`.
+
+**O print da rota `/alunos` não bate com o código.**
+O Chrome traduziu a página automaticamente, mudando "cadastrados" para "matriculados" e "Início" para "Página inicial". O print foi refeito com a tradução desativada.
+
+**Sobre o Compose e as alterações no código.**
+O problema de editar o `app.py` e a página não mudar, descrito acima, deixou de existir na segunda etapa: a pasta `app` é montada no container por um volume e o Flask roda com `debug=True`.
+
 ---
 
 ## Como reproduzir
@@ -495,18 +940,54 @@ Usar `sudo` ou adicionar o usuário ao grupo `docker` e reiniciar a sessão.
 ```bash
 git clone https://github.com/mjuspy/introducao-ao-docker.git
 cd introducao-ao-docker
-docker build -t minha-flask .
-docker run -d -p 5000:5000 --name meu-flask minha-flask
 ```
 
-Depois é só abrir `http://localhost:5000`.
+Crie o arquivo `.env` na raiz, com as suas senhas:
+
+```bash
+printf 'MYSQL_ROOT_PASSWORD=sua_senha_root\nMYSQL_PASSWORD=sua_senha_flask\n' > .env
+```
+
+Suba os três serviços:
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+Crie a tabela de alunos, digitando a senha de `MYSQL_PASSWORD` quando for pedida:
+
+```bash
+docker compose exec db mysql -u flaskuser -p meu_banco
+```
+
+```sql
+CREATE TABLE alunos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nome VARCHAR(100) NOT NULL
+);
+INSERT INTO alunos (nome) VALUES ('Seu Nome');
+```
+
+Depois abra `http://localhost` (pelo Apache) ou `http://localhost:5000` (direto no Flask). Se estiver em uma VM em NAT, crie antes as regras de redirecionamento da seção 18 e use `http://localhost:8080` no lugar da porta 80.
+
+Para encerrar:
+
+```bash
+docker compose down
+```
 
 ---
 
 ## Referências
 
+- COSTA, C. A. d. M. [RAS-Docker: material de apoio da disciplina](https://github.com/CesarAugusto88/RAS-Docker)
 - [Documentação oficial do Docker](https://docs.docker.com)
+- [Documentação do Docker Compose](https://docs.docker.com/compose/)
 - [Instalação do Docker Engine no Ubuntu](https://docs.docker.com/engine/install/ubuntu/)
 - [Docker Hub](https://hub.docker.com)
 - [Documentação do Flask](https://flask.palletsprojects.com)
+- [Documentação do Python](https://docs.python.org)
+- [MySQL Connector/Python](https://dev.mysql.com/doc/connector-python/en/)
+- [Apache HTTP Server: mod_proxy](https://httpd.apache.org/docs/2.4/mod/mod_proxy.html)
 - VITALINO, J. F. N.; CASTRO, M. A. N. *Descomplicando o Docker*. Rio de Janeiro: Brasport, 2016.
